@@ -153,6 +153,7 @@ async function refresh(){
     store.students=st.data||[]; store.allProgress=ap.data||[];
     const dl=await SB.from("tool_downloads").select("*").order("downloaded_at",{ascending:false}).limit(500);
     store.toolDownloads=dl.data||[];
+    store.myCard=(await SB.from("instructors").select("*").eq("user_id",uid).maybeSingle()).data||null;
   }
   if(role==="admin"){ const au=await SB.from("profiles").select("*").order("created_at"); store.allUsers=au.data||[]; }
 }
@@ -235,7 +236,7 @@ function shell(content){
   const roleLabel={student:"Alumno",instructor:"Instructor",admin:"Administrador"}[u.role];
   const links=[["dashboard","🏠","Inicio"],["material","📚","Material"],["herramientas","🛠️","Herramientas"]];
   if(u.role==="student") links.push(["tareas","📝","Mis Tareas"]);
-  if(u.role==="instructor"||u.role==="admin"){ links.push(["gestion","🗂️","Tareas y Entregas"]); links.push(["alumnos","👥","Alumnos"]); }
+  if(u.role==="instructor"||u.role==="admin"){ links.push(["gestion","🗂️","Tareas y Entregas"]); links.push(["alumnos","👥","Alumnos"]); links.push(["nosotros","👤","Mi Tarjeta"]); }
   links.push(["anuncios","📢","Anuncios"]);
   if(u.role==="admin") links.push(["usuarios","⚙️","Usuarios"]);
   const side=links.map(l=>`<div class="sidelink ${state.route.name===l[0]?'on':''}" onclick="go('${l[0]}')"><span class="ic">${l[1]}</span> ${l[2]}</div>`).join('');
@@ -622,6 +623,55 @@ function viewDescargas(){
     ${rows||'<div class="card p-6 text-sm text-gray-500 text-center">Todavía no hay descargas registradas.</div>'}`;
 }
 
+/* ---------- NOSOTROS (tarjeta del instructor) ---------- */
+function viewNosotros(){
+  const c=store.myCard||{};
+  const photo=c.photo_url?`<img src="${esc(c.photo_url)}" style="width:96px;height:96px;border-radius:50%;object-fit:cover">`:`<div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#00a99d,#e6007e);display:flex;align-items:center;justify-content:center;font-size:30px;color:#fff;font-weight:700">${initials(store.profile.name)}</div>`;
+  return `<h1 class="text-2xl font-bold text-white mb-1">👤 Mi Tarjeta</h1>
+  <p class="text-gray-500 mb-6">Completá tu tarjeta para la sección <b>"Nosotros"</b> de la web pública. Lo que cargás acá se muestra en la página.</p>
+  <div class="card p-6 max-w-2xl">
+    <div class="flex items-center gap-4 mb-5">
+      <div>${photo}</div>
+      <div class="flex-1"><label class="text-xs text-gray-400 font-semibold">Foto de perfil</label><input id="ndPhoto" class="fld mt-1" type="file" accept="image/*"><p class="text-[11px] text-gray-600 mt-1">Cuadrada se ve mejor. Menos de 50 MB.</p></div>
+    </div>
+    <label class="text-xs text-gray-400 font-semibold">Nombre</label>
+    <input id="ndName" class="fld mt-1 mb-4" value="${esc(c.name||store.profile.name||'')}" placeholder="Tu nombre">
+    <label class="text-xs text-gray-400 font-semibold">Cargo / rol</label>
+    <input id="ndTitle" class="fld mt-1 mb-4" value="${esc(c.title||'')}" placeholder="Ej: Director Académico · Instructor de DJ">
+    <label class="text-xs text-gray-400 font-semibold">Bio (breve)</label>
+    <textarea id="ndBio" class="fld mt-1 mb-5" rows="3" placeholder="Una descripción corta tuya...">${esc(c.bio||'')}</textarea>
+    <p class="text-xs font-semibold text-gray-300 mb-1">Redes y links</p>
+    <p class="text-[11px] text-gray-600 mb-3">Pegá la URL completa. Dejá vacío lo que no uses.</p>
+    <div class="grid sm:grid-cols-2 gap-3 mb-5">
+      <div><label class="text-xs text-gray-500">📸 Instagram</label><input id="ndIg" class="fld mt-1" value="${esc(c.instagram||'')}" placeholder="https://instagram.com/tuusuario"></div>
+      <div><label class="text-xs text-gray-500">🎧 Spotify</label><input id="ndSp" class="fld mt-1" value="${esc(c.spotify||'')}" placeholder="https://open.spotify.com/artist/..."></div>
+      <div><label class="text-xs text-gray-500">☁️ SoundCloud</label><input id="ndSc" class="fld mt-1" value="${esc(c.soundcloud||'')}" placeholder="https://soundcloud.com/..."></div>
+      <div><label class="text-xs text-gray-500">▶️ YouTube</label><input id="ndYt" class="fld mt-1" value="${esc(c.youtube||'')}" placeholder="https://youtube.com/@..."></div>
+      <div><label class="text-xs text-gray-500">🎵 TikTok</label><input id="ndTk" class="fld mt-1" value="${esc(c.tiktok||'')}" placeholder="https://tiktok.com/@..."></div>
+      <div><label class="text-xs text-gray-500">🌐 Sitio web</label><input id="ndWeb" class="fld mt-1" value="${esc(c.website||'')}" placeholder="https://..."></div>
+      <div><label class="text-xs text-gray-500">💬 WhatsApp</label><input id="ndWa" class="fld mt-1" value="${esc(c.whatsapp||'')}" placeholder="https://wa.me/54920..."></div>
+    </div>
+    <button id="ndBtn" class="btn btn-primary px-5 py-3" onclick="saveMyCard()">Guardar mi tarjeta</button>
+  </div>`;
+}
+async function saveMyCard(){
+  const g=id=>document.getElementById(id).value.trim();
+  const btn=document.getElementById("ndBtn"); btn.disabled=true; btn.textContent="Guardando…";
+  let photo_url=(store.myCard&&store.myCard.photo_url)||null;
+  const fi=document.getElementById("ndPhoto");
+  if(fi.files&&fi.files[0]){
+    const f=fi.files[0], path=store.user.id+"/"+Date.now()+"_"+f.name.replace(/[^\w.\-]/g,"_");
+    const {error:upErr}=await SB.storage.from("avatars").upload(path,f,{upsert:true});
+    if(upErr){ alert("Error subiendo la foto: "+upErr.message); btn.disabled=false; btn.textContent="Guardar mi tarjeta"; return; }
+    photo_url=SB.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+  }
+  const row={user_id:store.user.id,name:g("ndName"),title:g("ndTitle"),bio:g("ndBio"),photo_url:photo_url,instagram:g("ndIg")||null,spotify:g("ndSp")||null,soundcloud:g("ndSc")||null,youtube:g("ndYt")||null,tiktok:g("ndTk")||null,website:g("ndWeb")||null,whatsapp:g("ndWa")||null,updated_at:new Date().toISOString()};
+  const {error}=await SB.from("instructors").upsert(row,{onConflict:"user_id"});
+  if(error){ alert("Error: "+error.message); btn.disabled=false; btn.textContent="Guardar mi tarjeta"; return; }
+  await go("nosotros");
+  alert("✅ Tu tarjeta se guardó. Ya aparece en la sección Nosotros de la web pública.");
+}
+
 /* ===================== ROUTER ===================== */
 function render(){
   const app=document.getElementById("app");
@@ -641,6 +691,7 @@ function render(){
     case "herramientas": content=viewHerramientas(); break;
     case "nuevaHerramienta": content=viewNuevaHerramienta(); break;
     case "descargas": content=viewDescargas(); break;
+    case "nosotros": content=viewNosotros(); break;
     default: content=viewDashboard();
   }
   app.innerHTML=shell(content);
@@ -656,7 +707,7 @@ function render(){
   render();
 })();
 
-Object.assign(window,{go,doLogin,doSetup,logout,toggleLesson,submitWork,createAssignment,grade,postAnn,delAnn,adminCreateUser,adminSetRole,adminDeleteUser,addTool,deleteTool,logDownload});
+Object.assign(window,{go,doLogin,doSetup,logout,toggleLesson,submitWork,createAssignment,grade,postAnn,delAnn,adminCreateUser,adminSetRole,adminDeleteUser,addTool,deleteTool,logDownload,saveMyCard});
 </script>
 </body>
 </html>
