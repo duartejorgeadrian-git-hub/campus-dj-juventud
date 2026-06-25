@@ -141,6 +141,8 @@ async function refresh(){
     SB.from("announcements").select("*").order("created_at",{ascending:false})
   ]);
   store.assignments=as.data||[]; store.announcements=an.data||[];
+  const tl=await SB.from("tools").select("*").order("created_at",{ascending:false});
+  store.tools=tl.data||[];
   let subQ=SB.from("submissions").select("*").order("submitted_at",{ascending:false});
   if(role==="student") subQ=subQ.eq("student_id",uid);
   const subs=await subQ; store.submissions=subs.data||[];
@@ -149,6 +151,8 @@ async function refresh(){
   if(role==="instructor"||role==="admin"){
     const [st,ap]=await Promise.all([ SB.from("profiles").select("*").eq("role","student"), SB.from("progress").select("user_id,lesson_id") ]);
     store.students=st.data||[]; store.allProgress=ap.data||[];
+    const dl=await SB.from("tool_downloads").select("*").order("downloaded_at",{ascending:false}).limit(500);
+    store.toolDownloads=dl.data||[];
   }
   if(role==="admin"){ const au=await SB.from("profiles").select("*").order("created_at"); store.allUsers=au.data||[]; }
 }
@@ -229,7 +233,7 @@ async function logout(){ await SB.auth.signOut(); store.profile=null; store.user
 function shell(content){
   const u=store.profile;
   const roleLabel={student:"Alumno",instructor:"Instructor",admin:"Administrador"}[u.role];
-  const links=[["dashboard","🏠","Inicio"],["material","📚","Material"]];
+  const links=[["dashboard","🏠","Inicio"],["material","📚","Material"],["herramientas","🛠️","Herramientas"]];
   if(u.role==="student") links.push(["tareas","📝","Mis Tareas"]);
   if(u.role==="instructor"||u.role==="admin"){ links.push(["gestion","🗂️","Tareas y Entregas"]); links.push(["alumnos","👥","Alumnos"]); }
   links.push(["anuncios","📢","Anuncios"]);
@@ -527,6 +531,97 @@ async function adminDeleteUser(id){
   await go("usuarios");
 }
 
+/* ---------- HERRAMIENTAS (recursos: software, música, videos, etc.) ---------- */
+const TOOLCATS=[
+  {id:"software",name:"Software DJ",icon:"💿"},
+  {id:"musica",name:"Música",icon:"🎵"},
+  {id:"videos",name:"Videos",icon:"🎬"},
+  {id:"imagenes",name:"Imágenes",icon:"🖼️"},
+  {id:"links",name:"Links",icon:"🔗"},
+  {id:"documentos",name:"Documentos",icon:"📄"}
+];
+function toolCat(c){ return TOOLCATS.find(x=>x.id===c)||{name:c,icon:"📦"}; }
+function viewHerramientas(){
+  const isStaff=store.profile.role==="admin"||store.profile.role==="instructor";
+  const cat=state.route.cat||"all";
+  const all=store.tools||[];
+  const pills=[["all","🛠️","Todas"]].concat(TOOLCATS.map(c=>[c.id,c.icon,c.name]))
+    .map(p=>`<button class="chip" style="cursor:pointer;${cat===p[0]?'background:rgba(0,169,157,.15);color:#fff;border-color:var(--cyan)':''}" onclick="go('herramientas',{cat:'${p[0]}'})">${p[1]} ${p[2]}</button>`).join("");
+  const list=all.filter(t=>cat==="all"||t.category===cat);
+  const cards=list.map(t=>{
+    const m=toolCat(t.category);
+    const del=isStaff?`<button class="btn" style="background:rgba(239,68,68,.13);color:#f87171;padding:6px 9px;font-size:12px" onclick="deleteTool('${t.id}')" title="Eliminar">🗑️</button>`:"";
+    const open=t.url?`<a href="${esc(t.url)}" target="_blank" rel="noopener" onclick="logDownload('${t.id}')" class="btn btn-primary px-4 py-2 text-xs inline-block">${t.file_path?"Descargar":"Abrir"}</a>`:"";
+    return `<div class="card p-5 mb-3"><div class="flex items-start justify-between gap-3 flex-wrap"><div class="flex items-start gap-3 min-w-0"><div class="text-2xl flex-shrink-0">${m.icon}</div><div class="min-w-0"><div class="chip mb-1" style="font-size:10px">${m.name}</div><div class="font-semibold text-white">${esc(t.title)}</div>${t.description?`<p class="text-sm text-gray-400 mt-1 leading-relaxed">${esc(t.description)}</p>`:""}${t.file_name?`<div class="text-xs text-gray-600 mt-1">📎 ${esc(t.file_name)} (${fmtSize(t.file_size)})</div>`:""}</div></div><div class="flex items-center gap-2 flex-shrink-0">${open}${del}</div></div></div>`;
+  }).join("");
+  const addBtn=isStaff?`<button class="btn btn-primary px-5 py-3" onclick="go('nuevaHerramienta')">+ Agregar recurso</button>`:"";
+  const dlBtn=isStaff?`<button class="btn btn-ghost px-4 py-3 text-sm" onclick="go('descargas')">📥 Descargas</button>`:"";
+  return `<div class="flex items-center justify-between mb-2 flex-wrap gap-3"><div><h1 class="text-2xl font-bold text-white">🛠️ Herramientas</h1><p class="text-gray-500">Software, música, videos y recursos del taller.</p></div><div class="flex items-center gap-2 flex-wrap">${dlBtn}${addBtn}</div></div>
+    <div class="flex flex-wrap gap-2 my-5">${pills}</div>
+    ${cards||'<div class="card p-6 text-sm text-gray-500 text-center">No hay recursos en esta categoría todavía.</div>'}`;
+}
+function viewNuevaHerramienta(){
+  const opts=TOOLCATS.map(c=>`<option value="${c.id}">${c.icon} ${c.name}</option>`).join("");
+  return `<button class="text-sm text-gray-500 hover:text-white mb-4" onclick="go('herramientas')">← Herramientas</button>
+  <h1 class="text-2xl font-bold text-white mb-6">Agregar recurso</h1>
+  <div class="card p-6 max-w-2xl">
+    <div class="rounded-xl p-4 mb-5" style="background:rgba(251,186,0,.1);border:1px solid rgba(251,186,0,.3)"><div class="font-semibold text-sm mb-1" style="color:var(--yellow)">⚠️ Límite de almacenamiento</div><p class="text-xs text-gray-300 leading-relaxed">El almacenamiento gratis tiene <b>1 GB en total</b> y un <b>límite por archivo</b> (aprox. 50 MB). Para programas pesados (Virtual DJ, Rekordbox, Traktor) usá un <b>link de descarga</b>. Subí archivos solo para fotos, música o PDFs livianos.</p></div>
+    <label class="text-xs text-gray-400 font-semibold">Categoría</label>
+    <select id="htCat" class="fld mt-1 mb-4">${opts}</select>
+    <label class="text-xs text-gray-400 font-semibold">Título</label>
+    <input id="htTitle" class="fld mt-1 mb-4" placeholder="Ej: Virtual DJ 2024 (instalador)">
+    <label class="text-xs text-gray-400 font-semibold">Descripción (opcional)</label>
+    <textarea id="htDesc" class="fld mt-1 mb-4" rows="2" placeholder="Notas, versión, instrucciones..."></textarea>
+    <div class="rounded-xl p-4 mb-4" style="background:rgba(0,169,157,.07);border:1px solid rgba(0,169,157,.18)">
+      <label class="text-xs text-gray-400 font-semibold">Opción A — Pegar un link</label>
+      <input id="htUrl" class="fld mt-1" placeholder="https://... (ideal para software pesado, YouTube, páginas)">
+      <div class="text-center text-xs text-gray-600 my-3">— o —</div>
+      <label class="text-xs text-gray-400 font-semibold">Opción B — Subir un archivo</label>
+      <input id="htFile" class="fld mt-1" type="file">
+      <p class="text-[11px] text-gray-600 mt-2">Para programas grandes (Virtual DJ, Traktor) usá un <b>link</b>. Subí archivos para fotos, música o PDFs livianos.</p>
+    </div>
+    <button id="htBtn" class="btn btn-primary px-5 py-3" onclick="addTool()">Guardar recurso</button>
+  </div>`;
+}
+async function addTool(){
+  const cat=document.getElementById("htCat").value, title=document.getElementById("htTitle").value.trim(), desc=document.getElementById("htDesc").value.trim(), url=document.getElementById("htUrl").value.trim(), fi=document.getElementById("htFile");
+  if(!title){ alert("Poné un título."); return; }
+  const btn=document.getElementById("htBtn"); btn.disabled=true; btn.textContent="Guardando…";
+  const meta={category:cat,title,description:desc||null,url:url||null,created_by:store.profile.name};
+  if(fi.files&&fi.files[0]){
+    if(!confirm("Recordá: el almacenamiento gratis tiene 1 GB total y límite por archivo. Para programas pesados (Virtual DJ, Traktor) conviene usar un link.\n\n¿Subir este archivo igualmente?")){ btn.disabled=false; btn.textContent="Guardar recurso"; return; }
+    const f=fi.files[0], path=cat+"/"+Date.now()+"_"+f.name.replace(/[^\w.\-]/g,"_");
+    const {error:upErr}=await SB.storage.from("tools").upload(path,f,{upsert:false});
+    if(upErr){ alert("Error subiendo archivo: "+upErr.message); btn.disabled=false; btn.textContent="Guardar recurso"; return; }
+    const {data:pub}=SB.storage.from("tools").getPublicUrl(path);
+    meta.url=pub.publicUrl; meta.file_path=path; meta.file_name=f.name; meta.file_size=f.size; meta.file_type=f.type;
+  } else if(!url){ alert("Pegá un link o subí un archivo."); btn.disabled=false; btn.textContent="Guardar recurso"; return; }
+  const {error}=await SB.from("tools").insert(meta);
+  if(error){ alert("Error: "+error.message); btn.disabled=false; btn.textContent="Guardar recurso"; return; }
+  await go("herramientas",{cat});
+}
+async function deleteTool(id){
+  const t=(store.tools||[]).find(z=>z.id===id);
+  if(!confirm('¿Eliminar "'+(t?t.title:"este recurso")+'"?')) return;
+  if(t&&t.file_path){ await SB.storage.from("tools").remove([t.file_path]); }
+  const {error}=await SB.from("tools").delete().eq("id",id);
+  if(error){ alert("Error: "+error.message); return; }
+  await go("herramientas",{cat:state.route.cat||"all"});
+}
+function logDownload(id){
+  const t=(store.tools||[]).find(z=>z.id===id);
+  if(!t) return;
+  SB.from("tool_downloads").insert({tool_id:id,tool_title:t.title,user_id:store.user.id,user_name:store.profile.name}).then(function(){});
+}
+function viewDescargas(){
+  const logs=store.toolDownloads||[];
+  const rows=logs.map(d=>`<div class="card p-4 mb-2 flex items-center justify-between gap-3 flex-wrap"><div class="min-w-0"><div class="font-semibold text-white text-sm">${esc(d.user_name||"—")}</div><div class="text-xs text-gray-500 mt-0.5">descargó · ${esc(d.tool_title||"—")}</div></div><div class="text-xs text-gray-500 flex-shrink-0">${new Date(d.downloaded_at).toLocaleString("es-AR")}</div></div>`).join("");
+  return `<button class="text-sm text-gray-500 hover:text-white mb-4" onclick="go('herramientas')">← Herramientas</button>
+    <h1 class="text-2xl font-bold text-white mb-1">📥 Registro de descargas</h1>
+    <p class="text-gray-500 mb-6">Quién descargó o abrió cada recurso (${logs.length}).</p>
+    ${rows||'<div class="card p-6 text-sm text-gray-500 text-center">Todavía no hay descargas registradas.</div>'}`;
+}
+
 /* ===================== ROUTER ===================== */
 function render(){
   const app=document.getElementById("app");
@@ -543,6 +638,9 @@ function render(){
     case "alumnos": content=viewAlumnos(); break;
     case "anuncios": content=viewAnuncios(); break;
     case "usuarios": content=viewUsuarios(); break;
+    case "herramientas": content=viewHerramientas(); break;
+    case "nuevaHerramienta": content=viewNuevaHerramienta(); break;
+    case "descargas": content=viewDescargas(); break;
     default: content=viewDashboard();
   }
   app.innerHTML=shell(content);
@@ -558,7 +656,7 @@ function render(){
   render();
 })();
 
-Object.assign(window,{go,doLogin,doSetup,logout,toggleLesson,submitWork,createAssignment,grade,postAnn,delAnn,adminCreateUser,adminSetRole,adminDeleteUser});
+Object.assign(window,{go,doLogin,doSetup,logout,toggleLesson,submitWork,createAssignment,grade,postAnn,delAnn,adminCreateUser,adminSetRole,adminDeleteUser,addTool,deleteTool,logDownload});
 </script>
 </body>
 </html>
