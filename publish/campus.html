@@ -120,7 +120,7 @@ const initials=n=>(n||"?").split(" ").map(s=>s[0]).slice(0,2).join("").toUpperCa
 /* ---------- LOGO ---------- */
 const HAND='M13 2c-.6 0-1 .4-1 1v6h-1V4c0-.6-.4-1-1-1s-1 .4-1 1v5H7V6c0-.6-.4-1-1-1s-1 .4-1 1v8c0 3.3 2.7 6 6 6s6-2.7 6-6V8c0-.6-.4-1-1-1s-1 .4-1 1v1h-1V3c0-.6-.4-1-1-1z';
 function hand(c,w,h){return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 24 24" fill="'+c+'"><path d="'+HAND+'"/></svg>';}
-function logo(size){return '<img src="juvepng.png" alt="JUVENTUD" style="height:'+size+'px;width:auto">';}
+function logo(size){return '<img src="JUVENTUD.png" alt="JUVENTUD" style="height:'+size+'px;width:auto">';}
 function loader(msg){return '<div class="min-h-screen flex flex-col items-center justify-center gap-4"><div class="spin"></div><div class="text-sm text-gray-500">'+(msg||"Cargando…")+'</div></div>';}
 
 /* ---------- DATA LOADERS ---------- */
@@ -245,6 +245,7 @@ function shell(content){
           <div class="min-w-0"><div class="text-sm font-semibold text-white truncate">${esc(u.name)}</div><div class="text-[10px] text-gray-500">${roleLabel}${u.username?' · @'+esc(u.username):''}</div></div>
         </div>
         <button class="btn btn-ghost w-full py-2 text-xs mt-3" onclick="logout()">Cerrar sesión</button>
+        <p class="mono text-[9px] uppercase tracking-widest text-gray-600 text-center mt-4">Sistemas · <span style="color:var(--cyan)">Desarroll</span><span style="color:var(--magenta)">AR</span> · de Jorge Adrian Duarte</p>
       </div>
     </aside>
     <div class="flex-1 min-w-0">
@@ -460,7 +461,11 @@ function viewUsuarios(){
       <option value="instructor" ${x.role==='instructor'?'selected':''}>Instructor</option>
       <option value="admin" ${x.role==='admin'?'selected':''}>Admin</option></select>`;
   };
-  const rows=store.allUsers.map(x=>`<div class="card p-4 mb-2 flex items-center justify-between gap-3 flex-wrap"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm" style="background:linear-gradient(135deg,#00a99d,#e6007e);color:#fff">${initials(x.name)}</div><div><div class="font-semibold text-white text-sm">${esc(x.name)}</div><div class="text-xs text-gray-500">@${esc(x.username||'')}</div></div></div>${roleSel(x)}</div>`).join('');
+  const delBtn=(x)=>{
+    if(x.id===me.id || x.role==='admin') return '';
+    return `<button class="btn" style="background:rgba(239,68,68,.13);color:#f87171;padding:7px 11px;font-size:13px" onclick="adminDeleteUser('${x.id}')" title="Eliminar usuario">🗑️</button>`;
+  };
+  const rows=store.allUsers.map(x=>`<div class="card p-4 mb-2 flex items-center justify-between gap-3 flex-wrap"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm" style="background:linear-gradient(135deg,#00a99d,#e6007e);color:#fff">${initials(x.name)}</div><div><div class="font-semibold text-white text-sm">${esc(x.name)}</div><div class="text-xs text-gray-500">@${esc(x.username||'')}</div></div></div><div class="flex items-center gap-2">${roleSel(x)}${delBtn(x)}</div></div>`).join('');
   return `<h1 class="text-2xl font-bold text-white mb-1">⚙️ Usuarios</h1><p class="text-gray-500 mb-6">Creá cuentas y asigná roles.</p>
   <div class="card p-6 mb-7 max-w-2xl">
     <h3 class="font-bold text-white mb-4">➕ Crear nuevo usuario</h3>
@@ -504,6 +509,23 @@ async function adminSetRole(id,role){
   if(error){ alert("No se pudo cambiar el rol: "+error.message); }
   await go("usuarios");
 }
+async function adminDeleteUser(id){
+  const u=store.allUsers.find(z=>z.id===id);
+  const nm=u?u.name:"este usuario";
+  if(!confirm("¿Eliminar a "+nm+"? Esta acción no se puede deshacer.")) return;
+  const {data:{session}}=await SB.auth.getSession();
+  if(!session){ alert("Tu sesión expiró, volvé a iniciar sesión."); return; }
+  try{
+    const res=await fetch(SUPABASE_URL+"/functions/v1/admin-delete-user",{
+      method:"POST",
+      headers:{ "Authorization":"Bearer "+session.access_token, "apikey":SUPABASE_ANON, "Content-Type":"application/json" },
+      body:JSON.stringify({id})
+    });
+    const out=await res.json().catch(()=>({error:"Respuesta inválida del servidor"}));
+    if(!res.ok||out.error){ alert(out.error||("Error "+res.status)); return; }
+  }catch(e){ alert("No pude contactar el servidor: "+e.message); return; }
+  await go("usuarios");
+}
 
 /* ===================== ROUTER ===================== */
 function render(){
@@ -536,7 +558,7 @@ function render(){
   render();
 })();
 
-Object.assign(window,{go,doLogin,doSetup,logout,toggleLesson,submitWork,createAssignment,grade,postAnn,delAnn,adminCreateUser,adminSetRole});
+Object.assign(window,{go,doLogin,doSetup,logout,toggleLesson,submitWork,createAssignment,grade,postAnn,delAnn,adminCreateUser,adminSetRole,adminDeleteUser});
 </script>
 </body>
 </html>
