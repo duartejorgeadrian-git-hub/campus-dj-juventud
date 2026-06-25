@@ -515,7 +515,7 @@ renderContenido(1);
     const grid=document.getElementById("team-grid");
     if(!grid) return;
     try{
-      const res=await fetch(SB_URL+"/rest/v1/instructors?select=*&visible=eq.true&order=sort.asc,updated_at.asc",{headers:{apikey:SB_ANON}});
+      const res=await fetch(SB_URL+"/rest/v1/instructors?select=*&order=updated_at.desc",{headers:{apikey:SB_ANON}});
       const data=await res.json();
       if(!Array.isArray(data)||!data.length){ grid.innerHTML='<p class="text-gray-600 text-center" style="grid-column:1/-1">Pronto vas a conocer a nuestro equipo.</p>'; return; }
       grid.innerHTML=data.map(function(p){
