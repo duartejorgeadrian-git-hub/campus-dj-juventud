@@ -56,7 +56,7 @@ echo ✅ DEPLOY COMPLETADO
 echo =========================================
 echo.
 echo Tu sitio se actualizó en:
-echo https://duartejorgeadrian-git-hub.github.io/campus-dj-juventud/
+echo https://tallerdjjuventudrgl.github.io/campus-dj-juventud/
 echo.
 echo (Se actualiza en ~1-2 minutos)
 echo.
